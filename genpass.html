@@ -1,0 +1,266 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Static JS Terminal</title>
+  <style>
+    /* Basic terminal look */
+    body, html {
+      margin: 0;
+      padding: 0;
+      height: 100%;
+      background: #000;
+      color: #0f0;
+      font-family: monospace;
+    }
+    #terminal {
+      position: relative;           /* for sticky children */
+      box-sizing: border-box;
+      padding: 10px;
+      height: 100%;
+      overflow-y: auto;
+      white-space: pre-wrap;
+    }
+    .input-line {
+      display: flex;
+    }
+    .prompt {
+      flex: none;
+    }
+    .cmd {
+      flex: auto;
+      outline: none;
+      white-space: pre-wrap;
+    }
+
+    /* Stick this container to the bottom of #terminal */
+    .suggestions {
+      position: sticky;
+      bottom: 0;
+      background: #000;             /* cover any overflowing text */
+      margin: 4px 0 8px 2ch;        /* indent under the prompt */
+      display: flex;
+      flex-wrap: wrap;
+      gap: 4px;
+      z-index: 1;                   /* float above older lines */
+    }
+    .suggest-btn {
+      background: #111;
+      color: #0f0;
+      border: 1px solid #0f0;
+      border-radius: 3px;
+      font-family: monospace;
+      font-size: 0.9em;
+      padding: 2px 6px;
+      cursor: pointer;
+    }
+    .suggest-btn:hover {
+      background: #0f0;
+      color: #000;
+    }
+  </style>
+</head>
+<body>
+  <div id="terminal"></div>
+
+  <script>
+    (function(){
+      const term = document.getElementById('terminal');
+
+      // Create and append a single suggestions box, once.
+      const suggestionsBox = document.createElement('div');
+      suggestionsBox.className = 'suggestions';
+      term.appendChild(suggestionsBox);
+
+      window.tinyConsole = {
+        _cachedLine: false,
+        _clonedLine: -1,
+        _inputs: [],
+        suggestions: {}, // { label: value }
+        lineCallback: ()=>{},
+        activeLine: null,
+        write(str = '') {
+          const line = document.createElement('div');
+          line.textContent = str;
+          term.insertBefore(line, this.activeLine);
+          scrollToBottom();
+        },
+        onLine(cb) {
+          this.lineCallback = cb;
+        },
+        raiseLine(str) {
+          this.lineCallback(str);
+        },
+        applySuggestion(txt) {
+            // find the active contenteditable span
+            const cmd = document.querySelector('.cmd[contenteditable="true"]');
+            if (!cmd) return;
+
+            // ensure we have a single TextNode inside cmd
+            let node = cmd.firstChild;
+            if (!node || node.nodeType !== Node.TEXT_NODE) {
+                // if it’s empty or has other children, recreate a single text node
+                node = document.createTextNode(cmd.textContent);
+                cmd.textContent = '';
+                cmd.appendChild(node);
+            }
+
+            // remember the original length
+            const baseLen = node.length;
+
+            // find the pipe positions in the template
+            const firstPipe = txt.indexOf('|');
+            const secondPipe = txt.indexOf('|', firstPipe + 1);
+
+            // remove ALL pipes
+            const clean = txt.replace(/\|/g, '');
+
+            // append the clean string
+            node.insertData(baseLen, clean);
+
+            // prepare to set a selection/range
+            const range = document.createRange();
+            const sel = window.getSelection();
+            sel.removeAllRanges();
+
+            if (firstPipe >= 0 && secondPipe >= 0) {
+                // two pipes → highlight between them
+                // after removing the first pipe, every subsequent index shifts down by 1
+                const startOffset = baseLen + firstPipe;
+                const endOffset   = baseLen + (secondPipe - 1);
+                range.setStart(node, startOffset);
+                range.setEnd(node,   endOffset);
+            } else if (firstPipe >= 0) {
+                // single pipe → place cursor at that spot
+                const pos = baseLen + firstPipe;
+                range.setStart(node, pos);
+                range.collapse(true);
+            } else {
+                // no pipes → just put the cursor at the end
+                range.selectNodeContents(cmd);
+                range.collapse(false);
+            }
+
+            sel.addRange(range);
+            cmd.focus();
+        },
+        renderSuggestions() {
+          // clear old buttons
+          suggestionsBox.innerHTML = '';
+          const keys = Object.keys(this.suggestions);
+          if (!keys.length) {
+            suggestionsBox.style.display = 'none';
+            return;
+          }
+          suggestionsBox.style.display = 'flex';
+          keys.forEach(key => {
+            const btn = document.createElement('button');
+            btn.type = 'button';
+            btn.className = 'suggest-btn';
+            btn.textContent = key;
+            btn.addEventListener('click', () => {
+              const val = this.suggestions[key];
+              this.applySuggestion(val);
+            });
+            suggestionsBox.appendChild(btn);
+          });
+          scrollToBottom();
+        }
+      };
+
+      document.body.addEventListener('click', evt => {
+        if (evt.target === term) {
+          const cmd = term.querySelector('.cmd[contenteditable="true"]');
+          if (cmd) cmd.focus();
+        }
+      });
+
+      function placeCaretAtEnd(el) {
+        const range = document.createRange();
+        range.selectNodeContents(el);
+        range.collapse(false);
+        const sel = window.getSelection();
+        sel.removeAllRanges();
+        sel.addRange(range);
+      }
+
+      function newPrompt() {
+        const container = document.createElement('div');
+        container.className = 'input-line';
+
+        const prompt = document.createElement('span');
+        prompt.className = 'prompt';
+        prompt.textContent = '>>> ';
+        container.appendChild(prompt);
+
+        const cmd = document.createElement('span');
+        cmd.className = 'cmd';
+        cmd.contentEditable = true;
+        cmd.spellcheck = false;
+        container.appendChild(cmd);
+
+        tinyConsole.activeLine = container;
+
+        // insert each new prompt right before the sticky suggestions box
+        term.insertBefore(container, suggestionsBox);
+        cmd.focus();
+        scrollToBottom();
+
+        const keyListener = (e) => {
+            switch (e.key) {
+                case 'ArrowUp':
+                    e.preventDefault();
+                    if (tinyConsole._inputs.length < 1) return;
+                    if (tinyConsole._clonedLine < 0 && cmd.textContent.trim().length) {
+                        tinyConsole._inputs.unshift(cmd.textContent);
+                        tinyConsole._clonedLine = 0;
+                        tinyConsole._cachedLine = true;
+                    }
+                    tinyConsole._clonedLine = (tinyConsole._clonedLine + 1) % tinyConsole._inputs.length;
+                    cmd.textContent = tinyConsole._inputs[tinyConsole._clonedLine];
+                    placeCaretAtEnd(cmd);
+                    break;
+                case 'ArrowDown':
+                    e.preventDefault();
+                    if (tinyConsole._inputs.length < 1) return;
+                    tinyConsole._clonedLine = (tinyConsole._clonedLine - 1 + tinyConsole._inputs.length) % tinyConsole._inputs.length;
+                    cmd.textContent = tinyConsole._inputs[tinyConsole._clonedLine];
+                    placeCaretAtEnd(cmd);
+                    break;
+                case 'Escape':
+                    e.preventDefault();
+                    cmd.textContent = '';
+                    tinyConsole._clonedLine = -1;
+                    break;
+                case 'Enter':
+                    e.preventDefault();
+                    const text = cmd.textContent;
+                    cmd.contentEditable = false;
+                    if (tinyConsole._cachedLine) {
+                        tinyConsole._cachedLine = false;
+                        tinyConsole._clonedLine--;
+                        tinyConsole._inputs.shift();
+                    }
+                    if (text.trim().length && tinyConsole._clonedLine) tinyConsole._inputs.unshift(text);
+                    tinyConsole._clonedLine = -1;
+                    newPrompt();
+                    tinyConsole.raiseLine(text);
+                    cmd.removeEventListener('keydown', keyListener);
+                    break;
+            }
+        };
+        cmd.addEventListener('keydown', keyListener);
+      }
+
+      function scrollToBottom() {
+        term.scrollTop = term.scrollHeight;
+      }
+
+      newPrompt();
+    })();
+  </script>
+
+  <!-- your existing parser & repl logic goes here… -->
+  <script src="genpass.js"></script>
+</body>
+</html>
