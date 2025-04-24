@@ -243,13 +243,13 @@ class Parser {
             case "$": // basic symbol set
                 return this.push(new BasicSymbolNode());
             case '"': // literal
-                const literal = dbg(this.consumeUntil('"'));
+                const [literal, _1] = dbg(this.consumeUntil('"'));
                 return this.push(new LiteralNode(literal));
             case "[": // sample set
-                const sampleSet = dbg(this.consumeUntil("]"));
+                const [sampleSet, _2] = dbg(this.consumeUntil("]"));
                 return this.push(new SampleNode(sampleSet));
             case "<": // repeat modifier
-                const numStr = dbg(this.consumeUntil(">"));
+                const [numStr, _3] = dbg(this.consumeUntil(">"));
                 const num = parseInt(numStr);
                 if (isNaN(num)) {
                     throw new ParseError(
@@ -259,15 +259,26 @@ class Parser {
                 this.lastNode.setCount(num);
                 return null;
             case ":": // range
-                const rangeStr = dbg(this.consumeUntil(":"));
-                const [start, end] = rangeStr.split("-");
-                if (isNaN(start)) {
-                    return this.push(new AsciiRangeNode(start, end));
+                let rangeStr, endToken;
+                this.pushContext(undefined, GroupNode);
+                do {
+                    [rangeStr, endToken] = dbg(this.consumeUntil(":", ";"));
+                    const [start, end] = rangeStr.split("-");
+                    if (isNaN(start)) {
+                        this.push(new AsciiRangeNode(start, end));
+                    } else {
+                        const startNum = parseInt(start);
+                        const endNum = parseInt(end);
+                        this.push(new RangeNode(startNum, endNum));
+                    }
+                } while (endToken !== ";")
+                const groupNode = this.popContext();
+                if (groupNode.children.length > 1) {
+                    this.push(groupNode);
                 } else {
-                    const startNum = parseInt(start);
-                    const endNum = parseInt(end);
-                    return this.push(new RangeNode(startNum, endNum));
+                    this.push(groupNode.children[0]);
                 }
+                break;
             case "(": // start group
                 return this.pushContext(")", GroupNode, true);
             case "{": // start group sample
@@ -307,12 +318,14 @@ class Parser {
         return token;
     }
 
-    consumeUntil(endToken) {
+    consumeUntil(...endTokens) {
         let output = "";
 
-        for (let t = this.advance(); t !== endToken; t = this.advance()) {
+        let t = this.advance();
+        for (; !endTokens.includes(t); t = this.advance()) {
             if (t === undefined) {
-                throw new ParseError(`Expected '${endToken}' but got EOF`, this.current - 1);
+                const verbage = endTokens.length > 1 ? ` one of (${endTokens.map(t => `'${t}'`).join(", ")})` : ` '${endTokens[0]}'`
+                throw new ParseError(`Expected ${verbage} but got EOF`, this.current - 1);
             }
             if (t === "\\") {
                 output += this.advance();
@@ -321,7 +334,7 @@ class Parser {
             output += t;
         }
 
-        return output;
+        return [output, t];
     }
 
     advance() {
@@ -360,27 +373,32 @@ function nodeRepl(rl) {
     })
 }
 
+function browserRepl() {
+    window.tinyConsole.onLine((input) => {
+        const [output, _] = parseRepl(input);
+        window.tinyConsole.write(output);
+    })
+    window.tinyConsole.suggestions = {
+        "Any": ".",
+        "Lowercase": "a",
+        "Uppercase": "A",
+        "Numeric": "#",
+        "Basic Symbol": "$",
+        "Any Symbol": "@",
+        "Literal": '"|"',
+        "Sample Set": "[|]",
+        "Range": ":|x|-x;",
+        "Group": "(|)",
+        "Sample Children": "{|}",
+        "Repeat": "<|n|>",
+    }
+    window.tinyConsole.renderSuggestions()
+
+}
+
 function repl() {
     if (window.tinyConsole) {
-        window.tinyConsole.onLine((input) => {
-            const [output, _] = parseRepl(input);
-            window.tinyConsole.write(output);
-        })
-        window.tinyConsole.suggestions = {
-            "Any": ".",
-            "Lowercase": "a",
-            "Uppercase": "A",
-            "Numeric": "#",
-            "Basic Symbol": "$",
-            "Any Symbol": "@",
-            "Literal": '"|"',
-            "Sample Set": "[|]",
-            "Range": ":|x|-x:",
-            "Group:": "(|)",
-            "Sample Children": "{|}",
-            "Repeat": "<|n|>",
-        }
-        window.tinyConsole.renderSuggestions()
+        browserRepl();
     } else {
         nodeRepl();
     }
