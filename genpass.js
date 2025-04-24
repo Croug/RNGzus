@@ -68,6 +68,10 @@ class TreeNode {
         throw new Error("Must override generate() method in subclass");
     }
 
+    compile() {
+        throw new Error ("Must override compile() method in subclass")
+    }
+
     process() {
         return Array(this.count)
             .fill(0)
@@ -85,6 +89,10 @@ class LiteralNode extends TreeNode {
     generate() {
         return dbg(this.literal);
     }
+
+    compile() {
+        return `"${this.literal.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`
+    }
 }
 
 class GroupNode extends TreeNode {
@@ -100,6 +108,11 @@ class GroupNode extends TreeNode {
                 ? this.children.map((token) => token.process()).join("")
                 : sample(this.children).process(),
         );
+    }
+
+    compile() {
+        const arrStr = `[${this.children.map(x=>x.compile()).join(',')}].join('')`
+        return this.sequential ? arrStr : `sample(${arrStr})`
     }
 }
 
@@ -118,11 +131,19 @@ class SampleNode extends TreeNode {
     generate() {
         return dbg(sample(this.sampleSet));
     }
+
+    compile() {
+        return `sample("${this.sampleSet.join('').replace(/\\/g, '\\\\').replace(/"/g, '\\"')}")`
+    }
 }
 
 class AnyNode extends TreeNode {
     generate() {
         return String.fromCharCode(randRange(32, 127));
+    }
+
+    compile() {
+        return `String.fromCharCode(randRange(32, 172))`
     }
 }
 
@@ -139,6 +160,10 @@ class AlphaNode extends SampleNode {
 class NumericNode extends TreeNode {
     generate() {
         return dbg(randRange(0, 10).toString());
+    }
+
+    compile() {
+        return `randRange(0, 10).toString()`
     }
 }
 
@@ -164,6 +189,10 @@ class RangeNode extends TreeNode {
     generate() {
         return dbg(randRange(this.start, this.end).toString());
     }
+
+    compile() {
+        return `randRange(${this.start},${this.end}).toString()`
+    }
 }
 
 class AsciiRangeNode extends RangeNode {
@@ -176,6 +205,11 @@ class AsciiRangeNode extends RangeNode {
     generate() {
         const code = parseInt(super.generate());
         return String.fromCharCode(code);
+    }
+
+    compile() {
+        const r = super.compile()
+        return `String.fromCharCode(${r.substring(0, r.length - 10)})`
     }
 }
 
@@ -363,10 +397,6 @@ function nodeRepl(rl) {
     })
 
     rl.question(">>> ", (input) => {
-        if (input === "exit") {
-            rl.close();
-            return;
-        }
         const [output, result] = parseRepl(input);
         (result ? console.log : console.error)(output);
         nodeRepl(rl);
