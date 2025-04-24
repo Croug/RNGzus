@@ -111,8 +111,8 @@ class GroupNode extends TreeNode {
     }
 
     compile() {
-        const arrStr = `[${this.children.map(x=>x.compile()).join(',')}].join('')`
-        return this.sequential ? arrStr : `sample(${arrStr})`
+        const arrStr = `[${this.children.map(x=>x.compile()).join(',')}]`
+        return this.sequential ? `${arrStr}.join('')` : `sample(${arrStr})`
     }
 }
 
