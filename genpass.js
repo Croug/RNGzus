@@ -209,7 +209,7 @@ class AsciiRangeNode extends RangeNode {
 
     compile() {
         const r = super.compile()
-        return `String.fromCharCode(${r.substring(0, r.length - 10)})`
+        return `String.fromCharCode(${r.substring(0, r.length - 11)})`
     }
 }
 
@@ -384,11 +384,16 @@ function parseRepl(str) {
     try {
         const tree = new Parser().parse(str);
         const compiled = tree.compile()
-        const output = eval(compiled)
+        let output;
+        try {
+            output = tree.process()
+        } catch (ex) {
+            output = ex.message
+        }
         return [compiled + '\n' + output, true];
     } catch(ex) {
-        const arrow = " ".repeat(ex.index + 4) + "^"
-        return [`${arrow}\n${ex.message}`, false]
+        const arrow = ex instanceof ParseError ? " ".repeat(ex.index + 4) + "^\n" : ""
+        return [`${arrow}${ex.message}`, false]
     }
 }
 
