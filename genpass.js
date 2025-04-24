@@ -1,3 +1,4 @@
+window = typeof window === "undefined" ? null : window;
 function randRange(min, max) {
     const range = max - min;
     const rnd = crypto.getRandomValues(new Uint32Array(1))[0] / 0xffffffff;
@@ -68,8 +69,8 @@ class TreeNode {
         throw new Error("Must override generate() method in subclass");
     }
 
-    compile() {
-        throw new Error ("Must override compile() method in subclass")
+    compileSingle() {
+        throw new Error ("Must override compileSingle() method in subclass")
     }
 
     process() {
@@ -77,6 +78,12 @@ class TreeNode {
             .fill(0)
             .map((_) => this.generate())
             .join("");
+    }
+
+    compile() {
+        return this.count > 1 ? 
+            `Array(${this.count}).fill(0).map(_=>${this.compileSingle()}).join('')` :
+            this.compileSingle()
     }
 }
 
@@ -90,7 +97,7 @@ class LiteralNode extends TreeNode {
         return dbg(this.literal);
     }
 
-    compile() {
+    compileSingle() {
         return `"${this.literal.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`
     }
 }
@@ -110,7 +117,7 @@ class GroupNode extends TreeNode {
         );
     }
 
-    compile() {
+    compileSingle() {
         const arrStr = `[${this.children.map(x=>x.compile()).join(',')}]`
         return this.sequential ? `${arrStr}.join('')` : `sample(${arrStr})`
     }
@@ -132,7 +139,7 @@ class SampleNode extends TreeNode {
         return dbg(sample(this.sampleSet));
     }
 
-    compile() {
+    compileSingle() {
         return `sample("${this.sampleSet.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}")`
     }
 }
@@ -142,7 +149,7 @@ class AnyNode extends TreeNode {
         return String.fromCharCode(randRange(32, 127));
     }
 
-    compile() {
+    compileSingle() {
         return `String.fromCharCode(randRange(32, 172))`
     }
 }
@@ -162,7 +169,7 @@ class NumericNode extends TreeNode {
         return dbg(randRange(0, 10).toString());
     }
 
-    compile() {
+    compileSingle() {
         return `randRange(0, 10).toString()`
     }
 }
@@ -190,7 +197,7 @@ class RangeNode extends TreeNode {
         return dbg(randRange(this.start, this.end).toString());
     }
 
-    compile() {
+    compileSingle() {
         return `randRange(${this.start},${this.end}).toString()`
     }
 }
@@ -207,8 +214,8 @@ class AsciiRangeNode extends RangeNode {
         return String.fromCharCode(code);
     }
 
-    compile() {
-        const r = super.compile()
+    compileSingle() {
+        const r = super.compileSingle()
         return `String.fromCharCode(${r.substring(0, r.length - 11)})`
     }
 }
@@ -246,16 +253,16 @@ class Parser {
         return new RootNode(this.children);
     }
 
-    get lastNode() {
-        return this.children[this.children.length - 1];
-    }
-
     get currentContext() {
         return this.contextStack[this.contextStack.length - 1];
     }
 
     get currentNodeSet() {
         return this.currentContext.children;
+    }
+
+    get lastNode() {
+        return this.currentNodeSet[this.currentNodeSet.length - 1];
     }
 
     parseToken() {
@@ -386,7 +393,7 @@ function parseRepl(str) {
         const compiled = tree.compile()
         let output;
         try {
-            output = tree.process()
+            output = eval(compiled);
         } catch (ex) {
             output = ex.message
         }
@@ -435,7 +442,7 @@ function browserRepl() {
 }
 
 function repl() {
-    if (window.tinyConsole) {
+    if (window?.tinyConsole) {
         browserRepl();
     } else {
         nodeRepl();
