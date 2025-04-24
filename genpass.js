@@ -33,7 +33,7 @@ function getCallerInfo() {
 }
 
 function dbg(arg) {
-    if (window || process.env.DEBUG !== "true") return arg;
+    if (!window?.DEBUG || process.env.DEBUG !== "true") return arg;
     const callerInfo = getCallerInfo();
     const prefix =
         "DBG: " +
