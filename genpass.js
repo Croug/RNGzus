@@ -133,7 +133,7 @@ class SampleNode extends TreeNode {
     }
 
     compile() {
-        return `sample("${this.sampleSet.join('').replace(/\\/g, '\\\\').replace(/"/g, '\\"')}")`
+        return `sample("${this.sampleSet.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}")`
     }
 }
 
@@ -382,7 +382,10 @@ class Parser {
 
 function parseRepl(str) {
     try {
-        return [new Parser().parse(str).process(), true];
+        const tree = new Parser().parse(str);
+        const compiled = tree.compile()
+        const output = eval(compiled)
+        return [compiled + '\n' + output, true];
     } catch(ex) {
         const arrow = " ".repeat(ex.index + 4) + "^"
         return [`${arrow}\n${ex.message}`, false]
