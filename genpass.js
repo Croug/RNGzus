@@ -49,6 +49,82 @@ function dbg(arg) {
     return arg;
 }
 
+const alphabet = [
+	...Array.from({length:26}, (_,i) => String.fromCharCode(97 + i)),
+	...Array.from({length:26}, (_,i) => String.fromCharCode(65 + i))
+]
+
+class CompileCache {
+    constructor() {
+        this.functionCache = new Map();
+        this.stringCache = new Map();
+        this.namePattern = []
+    }
+
+    getNextFuncName() {
+        let carry = true;
+        for (let i = alphabet.length - 1; carry && i >= 0; i--) {
+            carry = false;
+            this.namePattern[i]++;
+            if (this.namePattern[i] >= alphabet.length) {
+                this.namePattern[i] = 0;
+                carry = true;
+            }
+        }
+        if (carry) {
+            this.namePattern.unshift(0);
+        }
+        return this.namePattern.map(x => alphabet[x]).join('')
+    }
+
+    getOrInsertFunction(func) {
+        if (!this.functionCache.has(func.name)) {
+            this.functionCache.set(func.name, {
+                name: func.name,
+                nameMinfied: this.getNextFuncName(),
+                body: func.toString(),
+                hits: 0,
+                __cached_func: true,
+            })
+        }
+
+        return this.functionCache.get(func.name)
+    }
+
+    registerFunctionHit(func) {
+        this.getOrInsertFunction(func).hits++
+    }
+
+    getFunctionExpression(func) {
+        if (func.body.startsWith("function")) {
+            return func.body.replace(func.name, "")
+        }
+
+        return func.body
+    }
+
+    makeIifeBody(func) {
+        const funcObj = func["__cached_func"] ? func : {
+            name: func.name,
+            nameMinified: func.name,
+            body: func.toString(),
+            hits: 0,
+            __cached_func: false,
+        }
+
+        return `(${this.getFunctionExpression(funcObj)})`
+    }
+
+    getFunctionInvocation(func, ...args) {
+        const funcInfo = this.functionCache.get(func)
+        if (!funcInfo) {
+            return `${this.makeIifeBody(func)}(${args.join(",")})`
+        }
+
+        // TODO: handle case where function is cached
+    }
+}
+
 class ParseError extends Error {
     constructor(message, index) {
         super(message);
