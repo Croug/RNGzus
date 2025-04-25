@@ -82,7 +82,7 @@ class CompileCache {
             this.functionCache.set(func.name, {
                 name: func.name,
                 nameMinfied: this.getNextFuncName(),
-                body: func.toString(),
+                body: this.getFunctionExpression(func),
                 hits: 0,
                 __cached_func: true,
             })
@@ -95,33 +95,21 @@ class CompileCache {
         this.getOrInsertFunction(func).hits++
     }
 
-    getFunctionExpression(func) {
-        if (func.body.startsWith("function")) {
-            return func.body.replace(func.name, "")
+    getFunctionParts(func) {
+        const funcStr = func.toString();
+        const match = funcStr.match(/^((function \s*([\w\-]*)\s*)?(?<params>\(.*\))\s*(=>)?|(?<paramsUnwrapped>.*)=>)((?<body>[\s\S]+))/i);
+
+        return {
+            params: match.groups.params.trim() || `(${paramsUnwrapped.trim()})`,
+            body: match.groups.body.trim(),
         }
-
-        return func.body
-    }
-
-    makeIifeBody(func) {
-        const funcObj = func["__cached_func"] ? func : {
-            name: func.name,
-            nameMinified: func.name,
-            body: func.toString(),
-            hits: 0,
-            __cached_func: false,
-        }
-
-        return `(${this.getFunctionExpression(funcObj)})`
     }
 
     getFunctionInvocation(func, ...args) {
         const funcInfo = this.functionCache.get(func)
         if (!funcInfo) {
-            return `${this.makeIifeBody(func)}(${args.join(",")})`
+            return `(${this.getFunctionExpression(func)})(${args.join(",")})`
         }
-
-        // TODO: handle case where function is cached
     }
 }
 
