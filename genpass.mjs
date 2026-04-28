@@ -418,14 +418,19 @@ class CompileCache {
         }
     }
 
+    resolveFunctionBody(funcInfo) {
+        const [sparse, ...deps] = funcInfo.body;
+        return sparse.iter().interleave(deps.iter().map(this.expandDependency.bind(this))).join("");
+    }
+
     getDeclarationBlock() {
         const allVars = this.variableCache.values().filter(x=> x.string ? x.hits > 1 : x.hits).groupBy(x=>x.kind);
         const varStr = Object.keys(allVars).iter().map(ty=>`${ty} ${
             allVars[ty].iter().map(x=>`${x.declarations}${x.init ? `=${x.init}` : ""}`).join(",")
         };`).join("")
 
-        const funcStr = this.functionCache.values().filter(x=>x.hits > 1).map(f => f.block ? `function ${f.nameMinified}${f.params}${f.body}` : 
-            `const ${f.nameMinified}=${f.params}=>${f.body};`
+        const funcStr = this.functionCache.values().filter(x=>x.hits > 1).map(f => f.block ? `function ${f.nameMinified}${f.params}${this.resolveFunctionBody(f)}` : 
+            `const ${f.nameMinified}=${f.params}=>${this.resolveFunctionBody(f)};`
         ).join("")
 
         return `${varStr}${funcStr}`
@@ -447,9 +452,8 @@ class CompileCache {
     getFunctionInvocation(func) {
         func = typeof func === "function" ? func.name : func;
         const funcInfo = this.functionCache.get(func)
-        let [sparse, ...deps] = funcInfo.body;
         if (funcInfo.hits < 2) {
-            const body = sparse.iter().interleave(deps.iter().map(this.expandDependency.bind(this))).join("");
+            const body = this.resolveFunctionBody(funcInfo);
             return `(${funcInfo.params}=>${body})`
         } else {
             return funcInfo.nameMinified
@@ -541,7 +545,7 @@ class PlaceholderIterable extends Placeholder {
         this.iterator = iterator;
     }
     expand(cache) {
-        return this.iterator.map(v => v.expand(cache)).join("");
+        return this.iterator.map(v => v.expand(cache)).join(",");
     }
 }
 
@@ -633,7 +637,8 @@ class LiteralNode extends TreeNode {
     }
 
     compileSingle(cache) {
-        return `"${this.literal.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`
+        // return `"${this.literal.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`
+        return cache.process`${this.literal}`
     }
 }
 
@@ -656,8 +661,14 @@ class GroupNode extends TreeNode {
     }
 
     compileSingle(cache) {
-        const arrStr = `[${this.children.map(x=>x.compile(cache)).join(',')}]`
-        return this.sequential ? `${arrStr}.join('')` : `sample(${arrStr})`
+        // const arrStr = `[${this.children.map(x=>x.compile(cache)).join(',')}]`
+        // return this.sequential ? `${arrStr}.join('')` : `sample(${arrStr})`
+
+        const arrCache = this.children.map(x=>x.compile(cache))
+
+        return this.sequential ?
+            cache.process`[${arrCache}].join('')` :
+            cache.process`${sample}(${arrCache})`
     }
 }
 
@@ -683,7 +694,8 @@ class SampleNode extends TreeNode {
     }
 
     compileSingle(cache) {
-        return `sample("${this.sampleSet.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}")`
+        // return `sample("${this.sampleSet.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}")`
+        return cache.process`${sample}(${this.sampleSet})`
     }
 }
 
@@ -693,7 +705,8 @@ class AnyNode extends TreeNode {
     }
 
     compileSingle(cache) {
-        return `String.fromCharCode(randRange(32, 172))`
+        // return `String.fromCharCode(randRange(32, 172))`
+        return cache.process`String.fromCharCode(${randRange}(32, 172))`
     }
 }
 
@@ -713,7 +726,8 @@ class NumericNode extends TreeNode {
     }
 
     compileSingle(cache) {
-        return `randRange(0, 10).toString()`
+        // return `randRange(0, 10).toString()`
+        return cache.process`${randRange}(0, 10).toString()`
     }
 }
 
@@ -741,7 +755,8 @@ class RangeNode extends TreeNode {
     }
 
     compileSingle(cache) {
-        return `randRange(${this.start},${this.end}).toString()`
+        // return `randRange(${this.start},${this.end}).toString()`
+        return cache.process`${randRange}(${this.start},${this.end}).toString()`
     }
 }
 
@@ -758,8 +773,8 @@ class AsciiRangeNode extends RangeNode {
     }
 
     compileSingle(cache) {
-        const r = super.compileSingle(cache)
-        return `String.fromCharCode(${r.substring(0, r.length - 11)})`
+        // return `String.fromCharCode(${r.substring(0, r.length - 11)})`
+        return cache.process`String.fromCharCode(${randRange}(${this.start},${this.end}))`
     }
 }
 
@@ -933,8 +948,7 @@ class Parser {
 function parseRepl(str) {
     try {
         const tree = new Parser().parse(str);
-        const cache = new CompileCache();
-        const compiled = tree.compile(cache)
+        const compiled = tree.toString()
         let output;
         try {
             output = eval(compiled);
