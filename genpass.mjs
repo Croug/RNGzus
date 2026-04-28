@@ -504,6 +504,7 @@ class CompileCache {
 }
 
 class Placeholder {
+    collect() {}
     expand(cache) {
         throw new Error("Must override expand() method in subclass");
     }
@@ -530,8 +531,17 @@ class PlaceholderTemplate extends Placeholder {
         this.strings = strings;
         this.placeholders = placeholders;
     }
+    collect() {
+        this.placeholderCache = [...this.placeholders.map(p => {
+            p.collect();
+            return p;
+        })];
+    }
     expand(cache) {
-        return this.strings.interleave(this.placeholders.map(p=>p.expand(cache))).join("");
+        if (!this.placeholderCache)
+            this.collect();
+
+        return this.strings.interleave(this.placeholderCache.iter().map(p=>p.expand(cache))).join("");
     }
 }
 
@@ -544,8 +554,16 @@ class PlaceholderIterable extends Placeholder {
         super();
         this.iterator = iterator;
     }
+    collect() {
+        this.iteratorCache = [...this.iterator.map(p => {
+            p.collect();
+            return p;
+        })];
+    }
     expand(cache) {
-        return this.iterator.map(v => v.expand(cache)).join(",");
+        if (!this.iteratorCache)
+            this.collect();
+        return this.iteratorCache.map(v => v.expand(cache)).join(",");
     }
 }
 
