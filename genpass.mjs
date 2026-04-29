@@ -130,11 +130,11 @@ function getCallerInfo() {
     return null;
 }
 
+const dbgFilter = new RegExp(windowObj?.DEBUG_FILTER || globalThis?.process?.env?.DEBUG_FILTER || undefined, "i");
+
 function dbg(arg, source="") {
-    if (!(windowObj?.DEBUG || process?.env?.DEBUG)) return arg;
-    const filterStr = windowObj?.DEBUG_FILTER || process?.env?.DEBUG_FILTER || '.*';
-    const filter = new RegExp(filterStr, "i");
-    if (!filter.test(source)) return arg;
+    if (!(windowObj?.DEBUG || globalThis?.process?.env?.DEBUG)) return arg;
+    if (!dbgFilter.test(source)) return arg;
     const callerInfo = getCallerInfo();
     const prefix =
         `DBG: ${
