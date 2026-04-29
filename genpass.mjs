@@ -366,9 +366,12 @@ class CompileCache {
         const funcScope = map.get(funcAst);
         const { dependencies } = funcAnalysis;
         Object.keys(dependencies)
-            .filter(x=>funcScope.has(x) || this.hasIdentifier(x))
-            .forEach(x => {
-                if (!this.hasIdentifier(x)) {
+            .flatMap(x => {
+                const processed = this.hasIdentifier(x);
+                return processed || funcScope.has(x) ? [[processed, x]] : []
+            })
+            .forEach(([processed, x]) => {
+                if (!processed) {
                     const value = funcScope.find_owner(x).declarations.get(x);
                     this.insertAst(value);
                 }
@@ -459,7 +462,7 @@ class CompileCache {
         if (name.startsWith(this.stringPrefix) && this.hasIdentifier(name)) {
             const strRaw = name.substring(this.stringPrefix.length);
             const strObj = this.stringMap.get(strRaw);
-            return strObj.hits < 2 ? strObj.init : this.stringMap.get(strRaw).declarations;
+            return strObj.hits < 2 ? strObj.init : strObj.declarations;
         }
 
         if (this.functionCache.has(name))
@@ -474,16 +477,16 @@ class CompileCache {
     getFunctionInvocation(func) {
         func = typeof func === "function" ? func.name : func;
         const funcInfo = this.functionCache.get(func)
-        if (funcInfo.hits < 2) {
-            const body = this.resolveFunctionBody(funcInfo);
-            return `(${funcInfo.params}=>${body})`
-        } else {
-            return funcInfo.nameMinified
-        }
+
+        if (funcInfo.hits < 2) 
+            return this.anon(funcInfo);
+
+        return funcInfo.nameMinified
     }
 
-    anon(body) {
-        // working here <<<
+    anon(funcInfo) {
+        const body = this.resolveFunctionBody(funcInfo);
+        return `(${funcInfo.params}=>${body})`
     }
 
     processSingle(item) {
