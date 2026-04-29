@@ -173,6 +173,7 @@ class CompileCache {
         this.variableCache = new Set();
         this.variableMap = new Map();
         this.stringMap = new Map();
+        this.stringPrefix = "string;"
         this.namePattern = []
         this.source = getSource();
         this.sourceAst = acorn.parse(this.source, {
@@ -209,7 +210,11 @@ class CompileCache {
     }
 
     hasIdentifier(name) {
-        return this.variableMap.has(name) || this.functionCache.has(name) || this.stringMap.has(name);
+        if (name.startsWith(this.stringPrefix)) {
+            return this.stringMap.has(name.substring(this.stringPrefix.length));
+        }
+
+        return this.variableMap.has(name) || this.functionCache.has(name);
     }
 
     registerVariableHit(name, hits=1) {
@@ -217,9 +222,23 @@ class CompileCache {
     }
 
     registerHit(item, hits=1) {
-        const name = typeof item === "function" ? this.getOrInsertFunction(item).name : item;
-        (this.functionCache.get(name) || this.variableMap.get(name) || this.stringMap.get(name)).hits += hits;
-        return name;
+        // const name = typeof item === "function" ? this.getOrInsertFunction(item).name : item;
+        // (this.functionCache.get(name) || this.variableMap.get(name) || this.stringMap.get(name)).hits += hits;
+        // return name;
+
+        if (typeof item === "function") {
+            const funcName = this.getOrInsertFunction(item).name;
+            this.functionCache.get(funcName).hits += hits;
+            return funcName;
+        }
+
+        if (item.startsWith(this.stringPrefix)) {
+            this.stringMap.get(item.substring(this.stringPrefix.length)).hits += hits;
+            return item;
+        }
+
+        (this.functionCache.get(item) || this.variableMap.get(item)).hits += hits;
+        return item;
     }
 
     parseFunction(func) {
@@ -392,13 +411,13 @@ class CompileCache {
             this.variableCache.add(v);
         }
 
-        return this.stringMap.get(strNode.value).declarations;
+        return this.stringPrefix + strNode.value;
     }
 
     getStringsInterned(funcAst, {dependencies}) {
         walkTree(funcAst, x=> {
-            this.internString(x);
-            (dependencies[x.value] || (dependencies[x.value] = [])).push(x)
+            const stringKey = this.internString(x);
+            (dependencies[stringKey] || (dependencies[stringKey] = [])).push(x)
         }, x=>x.type === "Literal" && typeof x.value === "string");
     }
 
@@ -437,14 +456,17 @@ class CompileCache {
     }
 
     expandDependency(name) {
+        if (name.startsWith(this.stringPrefix) && this.hasIdentifier(name)) {
+            const strRaw = name.substring(this.stringPrefix.length);
+            const strObj = this.stringMap.get(strRaw);
+            return strObj.hits < 2 ? strObj.init : this.stringMap.get(strRaw).declarations;
+        }
+
         if (this.functionCache.has(name))
             return this.getFunctionInvocation(name);
+
         if (this.variableMap.has(name)) 
             return this.variableMap.get(name).identifiers[name];
-        if (this.stringMap.has(name)) {
-            const str = this.stringMap.get(name);
-            return str.hits < 2 ? str.init : this.stringMap.get(name).declarations;
-        }
 
         return name;
     }
@@ -478,8 +500,8 @@ class CompileCache {
         }
 
         if(typeof item === 'string') {
-            this.internString(item);
-            return new PlaceholderSingle(this.registerHit(item));
+            const stringKey = this.internString(item);
+            return new PlaceholderSingle(this.registerHit(stringKey));
         }
 
         if(typeof (item[Symbol.iterator]) === 'function') {
